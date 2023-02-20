@@ -3,7 +3,6 @@
     typeof define === 'function' && define.amd ? define(factory) :
     (global = typeof globalThis !== 'undefined' ? globalThis : global || self, global.myurlencoder = factory());
   })(this, (function () { 'use strict';function unicode2Utf8(code) {
-  let ret;
   let ph = 0x80; // 1000 0000
   let ps = 0x3f; // 0011 1111
   let b2 = 0xc0; // 1100 0000
@@ -12,74 +11,80 @@
 
   //   console.log(Number(code).toString(2));
 
+  let ret = [];
   if (code < 0x80) {
-    ret = code;
-  } else if (code < 0x07ff) {
+    ret.push(code);
+  } else if (code <= 0x07ff) {
     let right1 = code & ps; // 6位
     let right2 = code >> 6;
-    ret = (right1 | ph) + ((right2 | b2) << 8);
-  } else if (code < 0xffff) {
+    ret.push(right2 | b2);
+    ret.push(right1 | ph);
+  } else if (code <= 0xffff) {
     let right1 = code & ps; // 6位
     let right2 = (code >> 6) & ps; // 6位
     let right3 = code >> 12;
-    ret = (right1 | ph) + ((right2 | ph) << 8) + ((right3 | b3) << 16);
+
+    ret.push(right3 | b3);
+    ret.push(right2 | ph);
+    ret.push(right1 | ph);
   } else {
     let right1 = code & ps; // 6位
     let right2 = (code >> 6) & ps; // 6位
     let right3 = (code >> 12) & ps; // 6位
     let right4 = code >> 18;
-    ret = (right1 | ph) + ((right2 | ph) << 8) + ((right3 | ph) << 16) + ((right4 | b4) << 24);
+    ret.push(right4 | b4);
+    ret.push(right3 | ph);
+    ret.push(right2 | ph);
+    ret.push(right1 | ph);
   }
   return ret;
 }
 // https://www.ietf.org/rfc/rfc2396.txt
 
-function __encodeURI(str) {
-  let code;
+function toHex(num) {
+  return Number(num).toString(16).toUpperCase().padStart(2, '0');
+}
+
+function __encodeUtf8(str, keepcharFn) {
   let ret = '';
-  for (var i = 0; i < str.length; i++) {
-    code = str.charCodeAt(i);
-    let utf8hex = Number(unicode2Utf8(code)).toString(16).toUpperCase();
-    if (code < 0x80) {
-      if (/[A-Za-z0-9-_.!~*'()]/.test(str[i])) {
-        ret += str[i];
-      } else if (/[;/?:@&=+$,#]/.test(str[i])) {
-        ret += str[i];
+  let charList = Array.from(str);
+
+  // https://zh.wikipedia.org/zh-hans/UTF-16
+  charList.forEach((char) => {
+    if (char.length === 1) {
+      // BMP chars // ucs-2 code equals unicode code
+      let code = char.charCodeAt(0);
+      let utf8buf = unicode2Utf8(code);
+      if (code < 0x80) {
+        // ascii
+        if (keepcharFn(char)) {
+          ret += char;
+        } else {
+          ret += '%' + toHex(utf8buf[0]);
+        }
       } else {
-        ret += '%' + utf8hex;
+        ret += '%' + utf8buf.map((temp) => toHex(temp)).join('%');
       }
-    } else if (code < 0x07ff) {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2);
-    } else if (code < 0xffff) {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2, 4) + '%' + utf8hex.slice(4);
     } else {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2, 4) + '%' + utf8hex.slice(4, 6) + '%' + utf8hex.slice(6, 8);
+      // 辅助平面   utf-16 code calc unicode code
+      let unicode = ((char.charCodeAt(0) & 0x03ff) << 10) + (char.charCodeAt(1) & 0x03ff) + 0x10000;
+      let utf8buf = unicode2Utf8(unicode);
+      ret += '%' + utf8buf.map((temp) => toHex(temp)).join('%');
     }
-  }
+  });
   return ret;
 }
 
+function __encodeURI(str) {
+  return __encodeUtf8(str, (char) => {
+    return /[A-Za-z0-9-_.!~*'()]/.test(char) || /[;/?:@&=+$,#]/.test(char);
+  });
+}
+
 function __encodeURIComponent(str) {
-  let code;
-  let ret = '';
-  for (var i = 0; i < str.length; i++) {
-    code = str.charCodeAt(i);
-    let utf8hex = Number(unicode2Utf8(code)).toString(16).toUpperCase();
-    if (code < 0x80) {
-      if (/[A-Za-z0-9-_.!~*'()]/.test(str[i])) {
-        ret += str[i];
-      } else {
-        ret += '%' + utf8hex;
-      }
-    } else if (code < 0x07ff) {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2);
-    } else if (code < 0xffff) {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2, 4) + '%' + utf8hex.slice(4);
-    } else {
-      ret += '%' + utf8hex.slice(0, 2) + '%' + utf8hex.slice(2, 4) + '%' + utf8hex.slice(4, 6) + '%' + utf8hex.slice(6, 8);
-    }
-  }
-  return ret;
+  return __encodeUtf8(str, (char) => {
+    return /[A-Za-z0-9-_.!~*'()]/.test(char);
+  });
 }
 
 return  {
